@@ -1,0 +1,170 @@
+import java.io.*;
+import java.util.HashMap;
+import java.util.Map;
+
+import org.apache.commons.cli.CommandLine;
+
+/** RawHeadRex, , Dec 14, 2017*/
+/**
+ * <h3>{@link RawHeadRex}</h3>
+ * @author jkuharev
+ * @version Dec 14, 2017 2:37:49 PM
+ */
+public class RawHeadRex implements Runnable
+{
+	public static final String defaultColSep = ",";
+	public static String buildVersion = "20171215";
+	private boolean zappGramlins = false;
+	private String colSep = defaultColSep;
+	private RawHeadRexCLI appCLI = new RawHeadRexCLI();
+	private File headerFile = null;
+	private File csvFile = null;
+	private Map<String, String> kvStorage = new HashMap<>();
+	private int subPos = 0;
+
+	private String searchPattern = "";
+	private Map<String, String> searchResult = new HashMap<>();
+
+// public static void main(String[] args)
+// {
+// main2( "-w,-i,~/Desktop/_HEADER.txt,-k,Sample
+// Description,-s,8".split( "," ) );
+// }
+	public static void main(String[] args)
+	{
+		RawHeadRex rex = new RawHeadRex( args );
+		rex.run();
+	}
+
+	public RawHeadRex(String[] args)
+	{
+		initCli( args );
+	}
+
+	private void initCli(String[] args)
+	{
+		if (args.length < 1)
+		{
+			appCLI.showHelp();
+			return;
+		}
+		try
+		{
+			CommandLine cli = appCLI.parseCommandLine( args );
+			headerFile = cli.hasOption( "i" ) ? new File( cli.getOptionValue( "i" ) ) : null;
+			csvFile = cli.hasOption( "o" ) ? new File( cli.getOptionValue( "o" ) ) : null;
+			searchPattern = cli.hasOption( "k" ) ? cli.getOptionValue( "k" ) : "";
+			colSep = cli.hasOption( "c" ) ? cli.getOptionValue( "s" ) : defaultColSep;
+			zappGramlins = cli.hasOption( "w" ) ? true : false;
+			subPos = cli.hasOption( "s" ) ? Integer.parseInt( cli.getOptionValue( "s" ) ) : 0;
+			
+			if (cli.hasOption( "h" ))
+			{
+				appCLI.showHelp();
+			}
+		}
+		catch (Exception e)
+		{
+			e.printStackTrace();
+			appCLI.showHelp();
+		}
+	}
+
+	@Override public void run()
+	{
+		if (headerFile == null)
+		{
+			System.err.println( "missing input file parameter." );
+			return;
+		}
+		try
+		{
+			PrintStream outStream = ( csvFile != null ) ? new PrintStream( new FileOutputStream( csvFile ) ) : System.out;
+			
+			if (!headerFile.exists())
+			{
+				throw new Exception( "invalid input file" );
+			}
+			
+			// if(headerFile.isDirectory()) // process both file types?
+			if (headerFile.canRead()) 
+			{
+				parseKVFile( headerFile );
+			}
+			
+			if(kvStorage.size()>0)
+			{
+				process( outStream );
+			}
+		}
+		catch (Exception e)
+		{
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * @param outStream
+	 */
+	private void process(PrintStream out)
+	{
+		int count = 0;
+		for ( String key : kvStorage.keySet() )
+		{
+			if (searchPattern == null || searchPattern == "" || key.matches( ".*" + searchPattern + ".*" ))
+			{
+				count++;
+				String value = kvStorage.get( key );
+				if (zappGramlins) key = key.replaceAll( "\\W+", "_" ).replaceAll( "^_|_$", "" );
+				if (subPos > 0) value = value.substring( 0, subPos );
+				if (subPos < 0) value = value.substring( value.length() + subPos );
+				out.println( key + colSep + value );
+			}
+		}
+		if (count < 1) System.err.println( "no matching key for the search string '" + searchPattern + "' found!" );
+	}
+
+	private void parseKVFile(File file)
+	{
+		try
+		{
+			BufferedReader r = new BufferedReader( new FileReader( file ) );
+			String line;
+			while (( line = r.readLine() ) != null)
+			{
+				// read line
+				line = line.trim();
+				String[] kv = null;
+				// check what kind of kv-file we are reading
+				if (line.matches( "^\\$+.*:.*" ))
+				{
+					// _HEADER.txt
+					kv = line.replaceAll( "^\\$+", "" ).split( ":", 2 );
+				}
+				else if (line.matches( ".*\\t+.*" ))
+				{
+					// _extern.inf
+					kv = line.split( "\\t+", 2 );
+				}
+				else
+				{
+					// skip line for everything else
+					continue;
+				}
+
+				if (kv.length == 2)
+				{
+					String k = kv[0].trim();
+					String v = kv[1].trim();
+					// store kv-pair
+					kvStorage.put( k, v );
+				}
+			}
+			r.close();
+		}
+		catch (Exception e)
+		{
+			e.printStackTrace();
+		}
+	}
+}
